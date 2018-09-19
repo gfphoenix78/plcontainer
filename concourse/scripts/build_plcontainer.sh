@@ -32,6 +32,7 @@ build_plcontainer() {
       local tag=$(git describe --tags --abbrev=0)
       PLCONTAINER_VERSION=$(echo $tag | awk -F. '{printf("%d.%d", $1, $2)}')
       PLCONTAINER_RELEASE=$(git describe --tags | awk -F. '{print $3}' | tr '-' '_')
+      echo "tag='$tag', version='$PLCONTAINER_VERSION', rel='$PLCONTAINER_RELEASE'"
   else
       PLCONTAINER_VERSION="0.0"
       PLCONTAINER_RELEASE="0"
