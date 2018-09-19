@@ -111,15 +111,15 @@ resources:
 - name: plcontainer_src
   type: git
   source:
-    branch: {{plcontainer-git-branch}}
-    uri: {{plcontainer-git-remote}}
+    branch: 5X_STABLE_test
+    uri: https://github.com/gfphoenix78/plcontainer.git
     tag_filter: 1.*
 
 - name: gpdb_src
   type: git
   source:
-    branch: {{gpdb-git-branch}}
-    uri: {{gpdb-git-remote}}
+    branch: 5X_STABLE
+    uri: https://github.com/greenplum-db/gpdb.git
     ignore_paths:
     - gpdb-doc/*
     - README*
@@ -263,7 +263,7 @@ resources:
     region_name: {{aws-region}}
     access_key_id: {{bucket-access-key-id}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: release/gpdb5/plcontainer/plcontainer-(.*)-rhel7-x86_64.gppkg
+    regexp: release-candidate/gpdb5/plcontainer/plcontainer-(.*)-rhel7-x86_64.gppkg
 
 - name: plcontainer_gpdb_centos6_build
   type: s3
@@ -272,7 +272,7 @@ resources:
     region_name: {{aws-region}}
     access_key_id: {{bucket-access-key-id}}
     secret_access_key: {{bucket-secret-access-key}}
-    regexp: release/gpdb5/plcontainer/plcontainer-(.*)-rhel6-x86_64.gppkg
+    regexp: release-candidate/gpdb5/plcontainer/plcontainer-(.*)-rhel6-x86_64.gppkg
 
 
 
@@ -333,11 +333,11 @@ jobs:
   plan:
   - aggregate:
     - get: plcontainer_src
-      passed:
-      - plcontainer_build_centos6
+      passed: [plcontainer_build_centos6]
     - get: gpdb_src
     - get: gpdb_binary
       resource: bin_gpdb_centos6
+      trigger: true
     - get: ccp_src
       passed: [plcontainer_build_python_image, plcontainer_build_r_image]
     - get: centos-gpdb-dev-6
@@ -386,11 +386,11 @@ jobs:
   plan:
   - aggregate:
     - get: plcontainer_src
-      passed:
-      - plcontainer_build_centos7
+      passed: [plcontainer_build_centos7]
     - get: gpdb_src
     - get: gpdb_binary
       resource: bin_gpdb_centos7
+      trigger: true
     - get: ccp_src
       passed: [plcontainer_build_python_image, plcontainer_build_r_image]
     - get: centos-gpdb-dev-7

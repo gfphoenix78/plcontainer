@@ -30,7 +30,6 @@ build_plcontainer() {
           echo "git describe failed" || exit 1
       fi
       local tag=$(git describe --tags --abbrev=0)
-      git checkout "$tag"
       PLCONTAINER_VERSION=$(echo $tag | awk -F. '{printf("%d.%d", $1, $2)}')
       PLCONTAINER_RELEASE=$(echo $tag | awk -F. '{print $3}')
   else
