@@ -111,7 +111,7 @@ resources:
 - name: plcontainer_src
   type: git
   source:
-    branch: 5X_STABLE_test
+    branch: 5x_br
     uri: https://github.com/gfphoenix78/plcontainer.git
     tag_filter: 1.*
 
