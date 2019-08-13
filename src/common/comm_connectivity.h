@@ -49,7 +49,7 @@ typedef struct plcContext
 	// int container_slot;
 	int head_free_pplan_slot;  /* free list of spi pplan slot */
 	struct pplan_slots pplans[MAX_PPLAN]; /* for spi plannning */
-}plcContext;
+} plcContext;
 
 
 #define UDS_SHARED_FILE "unix.domain.socket.shared.file"
@@ -75,7 +75,9 @@ int plcDialToServer(const char *network, const char *server_address);
 // separator initialization of plcConn/plcContext with socket fd
 void plcContextInit(plcContext *ctx);
 void plcConnInit(plcConn *conn);
-void plcDisconnect(plcContext *ctx);
+void plcDisconnect(plcConn *conn);
+void plcFreeContext(plcContext *ctx);
+
 
 // plcConn *plcConnInit(int sock);
 

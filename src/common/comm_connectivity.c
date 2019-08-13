@@ -363,13 +363,15 @@ void plcConnInit(plcConn *conn) {
 	// Initializing control parameters
 	conn->sock = -1;
 }
+
 void plcContextInit(plcContext *ctx)
 {
 	// TODO: init
-	plcConnInit((plcConn*)ctx);
+	plcConnInit(ctx->conn);
 	init_pplan_slots(ctx);
 	ctx->uds_fn = NULL;
 }
+
 static int ListenTCP(const char *network, const char *address)
 {
     if (!network || !address) {
@@ -423,6 +425,7 @@ static int ListenTCP(const char *network, const char *address)
     freeaddrinfo(result);           /* No longer needed */
     return fd;
 }
+
 int ListenUnix(const char *network, const char *address)
 {
     int fd, sotype;
@@ -467,6 +470,7 @@ out:
     close(fd);
     return -1;
 }
+
 int plcListenServer(const char *network, const char *address)
 {
 	if (!network) {
@@ -481,6 +485,7 @@ int plcListenServer(const char *network, const char *address)
     }
     return -1;
 }
+
 static int DialTCP(const char *network, const char *address)
 {
     char node_service[600], *node, *service;
@@ -596,13 +601,27 @@ int plcDialToServer(const char *network, const char *address)
 /*
  *  Close the plcConn connection and deallocate the buffers
  */
-void plcDisconnect(plcContext *ctx) {
-	char *uds_fn;
+void plcDisconnect(plcConn *conn) {
 
-	if (!ctx) 
+	if (!conn) 
 		return;
 		
-	close(ctx->sock);
+	close(conn->sock);
+	pfree(conn->buffer[PLC_INPUT_BUFFER].data);
+	pfree(conn->buffer[PLC_OUTPUT_BUFFER].data);
+	pfree(conn);
+	
+}
+
+/*
+ * clearup the container connection context
+ */
+void plcFreeContext(plcContext *ctx)
+{
+	char *uds_fn;
+
+	/* Disconnect the connection and free the buffer */
+	plcDisconnect(ctx->conn);
 
 	uds_fn = ctx->uds_fn;
 	if (uds_fn != NULL) {
@@ -610,8 +629,6 @@ void plcDisconnect(plcContext *ctx) {
 		ctx->uds_fn = NULL;
 	}
 
-	pfree(ctx->buffer[PLC_INPUT_BUFFER].data);
-	pfree(ctx->buffer[PLC_OUTPUT_BUFFER].data);
 	deinit_pplan_slots(ctx);
 	pfree(ctx);
 }
