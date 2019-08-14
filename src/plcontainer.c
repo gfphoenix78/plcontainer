@@ -317,7 +317,7 @@ static plcProcResult *plcontainer_get_result(FunctionCallInfo fcinfo,
 				message_type = answer->msgtype;
 				switch (message_type) {
 					case MT_RESULT:
-						result = (plcProcResult *) pmalloc(sizeof(plcProcResult));
+						result = (plcProcResult *) palloc(sizeof(plcProcResult));
 						result->resmsg = (plcMsgResult *) answer;
 						result->resrow = 0;
 						break;
@@ -452,10 +452,10 @@ static void plcontainer_process_quote(plcMsgQuote *msg, plcConn *conn) {
 	if (msg->quote_type == QUOTE_TYPE_LITERAL || msg->quote_type == QUOTE_TYPE_NULLABLE) {
 		char *str;
 		str = quote_literal_cstr(msg->msg);
-		result->result = PLy_strdup(str);
+		result->result = plc_top_strdup(str);
 		pfree(str);
 	} else if (msg->quote_type == QUOTE_TYPE_IDENT) {
-		result->result = PLy_strdup(quote_identifier(msg->msg));
+		result->result = plc_top_strdup(quote_identifier(msg->msg));
 	}
 
 	res = plcontainer_channel_send(conn, (plcMessage *) result);

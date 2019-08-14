@@ -110,7 +110,7 @@ static plcMsgRaw *create_prepare_result(int64 pplan, plcDatatype *type, int narg
 	result = palloc(sizeof(plcMsgRaw));
 	result->msgtype = MT_RAW;
 	result->size = sizeof(int32) + sizeof(int64) + sizeof(int32) + nargs * sizeof(plcDatatype);
-	result->data = pmalloc(result->size);
+	result->data = palloc(result->size);
 
 	offset = 0;
 	/* We need to transfer the state of plan (i.e. valid or not). */
@@ -132,7 +132,7 @@ static plcMsgRaw *create_unprepare_result(int32 retval) {
 	result = palloc(sizeof(plcMsgRaw));
 	result->msgtype = MT_RAW;
 	result->size = sizeof(int32);
-	result->data = pmalloc(result->size);
+	result->data = palloc(result->size);
 
 	*((int32 *) result->data) = retval;
 
@@ -285,8 +285,8 @@ plcMessage *handle_sql_message(plcMsgSQL *msg, plcContext *conn, plcProcInfo *pi
 					}
 
 					if (msg->nargs > 0) {
-						nulls = pmalloc(msg->nargs * sizeof(char));
-						values = pmalloc(msg->nargs * sizeof(Datum));
+						nulls = palloc(msg->nargs * sizeof(char));
+						values = palloc(msg->nargs * sizeof(Datum));
 					} else {
 						nulls = NULL;
 						values = NULL;
@@ -346,7 +346,7 @@ plcMessage *handle_sql_message(plcMsgSQL *msg, plcContext *conn, plcProcInfo *pi
 
 				if (msg->nargs > 0) {
 					plc_plan->argOids = PLy_malloc(msg->nargs * sizeof(Oid));
-					argTypes = pmalloc(msg->nargs * sizeof(plcDatatype));
+					argTypes = palloc(msg->nargs * sizeof(plcDatatype));
 				} else {
 					plc_plan->argOids = NULL;
 					argTypes = NULL;

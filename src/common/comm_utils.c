@@ -14,24 +14,10 @@
 #include "utils/palloc.h"
 
 // TODO: rename PLy_malloc to a more meaningful name
-void *PLy_malloc(size_t bytes) {
+void *top_palloc(size_t bytes) {
 	/* We need our allocations to be long-lived, so use TopMemoryContext */
 	return MemoryContextAlloc(TopMemoryContext, bytes);
 }
-
-char *
-PLy_strdup(const char *str)
-{
-	char	   *result;
-	size_t		len;
-
-	len = strlen(str) + 1;
-	result = PLy_malloc(len);
-	memcpy(result, str, len);
-
-	return result;
-}
-
 
 char *plc_top_strdup(char *str) {
 	int len = strlen(str);
