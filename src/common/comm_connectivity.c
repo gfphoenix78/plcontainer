@@ -46,6 +46,26 @@ plc_gettimeofday(struct timeval *tv)
 		plc_elog(ERROR, "Failed to get time: %s", strerror(errno));
 }
 
+int plcBufferInit(plcBuffer *buffer)
+{
+	buffer->data = (char *)palloc(PLC_BUFFER_SIZE);
+	buffer->pStart = 0;
+	buffer->pEnd = 0;
+	buffer->bufSize = PLC_BUFFER_SIZE;
+	return 0;
+}
+
+void plcBufferRelease(plcBuffer *buffer)
+{
+	if (buffer->data) {
+		pfree(buffer->data);
+	}
+	buffer->data = NULL;
+	buffer->pStart = 0;
+	buffer->pEnd = 0;
+	buffer->bufSize = 0;
+}
+
 /*
  *  Read data from the socket
  */
@@ -345,15 +365,8 @@ int plcBufferFlush(plcConn *conn) {
 	return plcBufferMaybeFlush(conn, true);
 }
 
-// assume buffer is all zero
-static void plcBufferInit(plcBuffer *buffer)
-{
-	buffer->data = palloc(PLC_BUFFER_SIZE);
-	buffer->bufSize = PLC_BUFFER_SIZE;
-}
 /*
  *  Initialize plcConn data structure and input/output buffers.
- *  For network connection, uds_fn means nothing.
  */
 void plcConnInit(plcConn *conn) {
 	memset(conn, 0, sizeof(*conn));
@@ -367,9 +380,9 @@ void plcConnInit(plcConn *conn) {
 void plcContextInit(plcContext *ctx)
 {
 	// TODO: init
-	plcConnInit(ctx->conn);
+	plcConnInit(&ctx->conn);
 	init_pplan_slots(ctx);
-	ctx->uds_fn = NULL;
+	ctx->service_address = NULL;
 }
 
 static int ListenTCP(const char *network, const char *address)
@@ -598,19 +611,30 @@ int plcDialToServer(const char *network, const char *address)
     return -1;
 }
 
+static void plcDisconnect_(plcConn *conn);
+
 /*
  *  Close the plcConn connection and deallocate the buffers
  */
 void plcDisconnect(plcConn *conn) {
-
-	if (!conn) 
-		return;
-		
+    plcDisconnect_(conn);
+    pfree(conn);
+}
+static void plcDisconnect_(plcConn *conn) {
 	close(conn->sock);
 	pfree(conn->buffer[PLC_INPUT_BUFFER].data);
 	pfree(conn->buffer[PLC_OUTPUT_BUFFER].data);
-	pfree(conn);
-	
+}
+
+// This function only release buffers and reset plan array.
+// NOTE: socket fd keeps open and service address is still valid.
+//      We INTEND to reuse connection to the container.
+void plcReleaseContext(plcContext *ctx)
+{
+	int n = 2;
+	while (--n>=0)
+		plcBufferRelease(&ctx->conn.buffer[n]);
+	deinit_pplan_slots(ctx);
 }
 
 /*
@@ -618,17 +642,13 @@ void plcDisconnect(plcConn *conn) {
  */
 void plcFreeContext(plcContext *ctx)
 {
-	char *uds_fn;
-
-	/* Disconnect the connection and free the buffer */
-	plcDisconnect(ctx->conn);
-
-	uds_fn = ctx->uds_fn;
-	if (uds_fn != NULL) {
-		pfree(uds_fn);
-		ctx->uds_fn = NULL;
+	char *service_address;
+	close(ctx->sock);
+	plcReleaseContext(ctx);
+	service_address = ctx->service_address;
+	if (service_address != NULL) {
+		pfree(service_address);
+		ctx->service_address = NULL;
 	}
-
-	deinit_pplan_slots(ctx);
 	pfree(ctx);
 }

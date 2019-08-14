@@ -33,8 +33,8 @@ interpreted as representing official policies, either expressed or implied, of t
 #include "comm_channel.h"
 #include "comm_utils.h"
 #include "comm_connectivity.h"
-#include "comm_server.h"
 #include "config.h"
+#include "server/server.h"
 
 #include <stdio.h>
 #include <stdlib.h>

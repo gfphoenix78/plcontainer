@@ -89,4 +89,16 @@ int plcBufferReceive(plcConn *conn, size_t nBytes);
 
 int plcBufferFlush(plcConn *conn);
 
+// init plcBuffer to retain a default buffer.
+int plcBufferInit(plcBuffer *buffer);
+
+// free the internal buffer in plcBuffer, not plcBuffer itself
+// i.e. to make the buffer empty
+void plcBufferRelease(plcBuffer *buffer);
+// return the available data size.
+static inline int plcBufferAvailableSize(const plcBuffer *buffer)
+{
+	return buffer->pEnd - buffer->pStart;
+}
+
 #endif /* PLC_COMM_CONNECTIVITY_H */

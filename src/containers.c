@@ -50,7 +50,6 @@ typedef struct {
 
 static volatile int containers_init = 0;
 static volatile container_t* volatile containers;
-static char *uds_fn_for_cleanup;
 
 static void init_containers();
 
@@ -224,16 +223,9 @@ static int init_container_connection(plcConn conn)
 	return -1;
 }
 
-static char *get_uds_fn(char *uds_dir) {
-	char *uds_fn = NULL;
-	int sz;
-
-	/* filename: IPC_GPDB_BASE_DIR + "." + PID + "." + DOMAIN_SOCKET_NO  + "." + container_slot / UDS_SHARED_FILE */
-	sz = strlen(uds_dir) + 1 + MAX_SHARED_FILE_SZ + 1;
-	uds_fn = (char*) pmalloc(sz);
-	snprintf(uds_fn, sz, "%s/%s", uds_dir, UDS_SHARED_FILE);
-
-	return uds_fn;
+// TODO: read shm to get the address of coordinator
+static char *get_coordinator_address(void) {
+	return NULL;
 }
 
 void delete_containers() {
