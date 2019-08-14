@@ -268,7 +268,7 @@ static plcProcResult *plcontainer_get_result(FunctionCallInfo fcinfo,
 		conn = (plcConn *)ctx;
 		pfree(runtime_id);
 
-		if (conn == NUL) {
+		if (conn == NULL) {
 			plc_elog(ERROR, "Could not create or connect to container.");
 		}
 		res = plcontainer_channel_send(conn, (plcMessage *) req);

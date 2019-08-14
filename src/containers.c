@@ -46,10 +46,15 @@ typedef struct {
 
 #define MAX_CONTAINER_NUMBER 10
 
-static volatile container_t containers[MAX_CONTAINER_NUMBER];
-static int container_size = 0;
+static container_t containers[MAX_CONTAINER_NUMBER];
+static int containers_size = 0;
 
 static int check_runtime_id(const char *id);
+static char *get_coordinator_address(void);
+static int get_new_container_from_coordinator(const char *runtime_id, plcContext *ctx);
+static plcContext *get_new_container_ctx(const char *runtime_id);
+static int init_container_connection(plcContext *ctx);
+static void insert_container_slot(char *runtime_id, plcContext *ctx, int slot);
 
 static void insert_container_slot(char *runtime_id, plcContext *ctx, int slot)
 {
@@ -65,11 +70,11 @@ plcContext *get_container_context(const char *runtime_id)
 #ifndef PLC_PG
 	SIMPLE_FAULT_INJECTOR("plcontainer_before_container_connected");
 #endif
-	for (i = 0; i < container_size; i++)
+	for (i = 0; i < containers_size; i++)
 		if (strcmp(containers[i].runtimeid, runtime_id) == 0)
 			return containers[i].ctx;
 
-	i = container_size+1;
+	i = containers_size+1;
 	/* No connection available */
 	if (i >= MAX_CONTAINER_NUMBER)
 		plc_elog(ERROR, "too many plcontainer runtime in a session");
@@ -78,7 +83,7 @@ plcContext *get_container_context(const char *runtime_id)
 	newCtx = get_new_container_ctx(runtime_id);
 
 	insert_container_ctx(runtime_id, newCtx, i);
-	container_size++;
+	containers_size++;
 	return newCtx;
 }
 // return a plcContext that connected to the server
@@ -104,7 +109,7 @@ static plcContext *get_new_container_ctx(const char *runtime_id)
 	if (res != 0)
 	{
 		/* TODO: Using errors instead of elog */
-		plcDisconnect(conn);
+		plcFreeContext(ctx);
 		elog(ERROR, "Cannot connect to container server");
 	}
 
@@ -114,13 +119,13 @@ static plcContext *get_new_container_ctx(const char *runtime_id)
 /* TODO: using emun to instead of int? */
 static int get_new_container_from_coordinator(const char *runtime_id, plcContext *ctx)
 {
-	plcConn *conn = NULL; // a connection used to connect to coordinator
+	plcConn *conn; // a connection used to connect to coordinator
 	int ret = 0;
 
 	conn = (plcConn*) palloc0(sizeof(plcConn));
 
 	/* current only uds is supported */
-	conn->sock = plcDialToServer("unix", "");
+	conn->sock = plcDialToServer("unix", get_coordinator_address());
 
 	/* send message to coordinator */
 
@@ -161,10 +166,10 @@ static int init_container_connection(plcContext *ctx)
 			}
 			else
 			{
-				plc_elog(DEBUG1, "Failed to receive pong from client. Maybe expected. dockerid: %s", dockerid);
+				plc_elog(DEBUG1, "Failed to receive pong from client.");
 			}
 		} else {
-			plc_elog(DEBUG1, "Failed to send ping to client. Maybe expected. dockerid: %s", dockerid);
+			plc_elog(DEBUG1, "Failed to send ping to client.");
 		}
 
 			/*
@@ -182,9 +187,7 @@ static int init_container_connection(plcContext *ctx)
 			 * to harm the normal case although since client will just accept()
 			 * the tcp connection once reconnect should never happen.
 			 */
-		} else {
-			plc_elog(DEBUG1, "Failed to connect to client. Maybe expected. dockerid: %s", dockerid);
-		}
+
 
 		/* TODO: using pg_sleep()? */
 		usleep(sleepus);
@@ -205,7 +208,7 @@ static char *get_coordinator_address(void) {
 void reset_containers() {
 	int i;
 
-	for (i = 0; i < container_size; i++) {
+	for (i = 0; i < containers_size; i++) {
 		if (containers[i].runtimeid != NULL) {
 			/*
 				* Disconnect at first so that container has chance to exit gracefully.
@@ -223,7 +226,7 @@ void reset_containers() {
 		}
 	}
 	containers_size = 0;
-	memset(containers, 0, sizeof(containers));
+	memset((void *)containers, 0, sizeof(containers));
 }
 
 char *parse_container_meta(const char *source) {
