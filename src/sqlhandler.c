@@ -167,8 +167,8 @@ static int insert_pplan(plcContext *ctx, int64 pplan) {
 
 	slot = ctx->head_free_pplan_slot;
 	if (slot >= 0) {
-			plc_elog(DEBUG1, "Inserting pplan 0x%llx at slot %d for container %d",
-			        (long long) pplan, slot, ctx->container_slot);
+			plc_elog(DEBUG1, "Inserting pplan 0x%llx at slot %d",
+			        (long long) pplan, slot);
 		pplans[slot].pplan = pplan;
 		ctx->head_free_pplan_slot = pplans[slot].next;
 	}
@@ -184,8 +184,8 @@ static int delete_pplan(plcContext *ctx, int64 pplan) {
 
 	if (slot >= 0) {
 		pplans = ctx->pplans;
-			plc_elog(DEBUG1, "Removing pplan 0x%llx at slot %d, for container %d",
-			        (long long) pplan, slot, ctx->container_slot);
+			plc_elog(DEBUG1, "Removing pplan 0x%llx at slot %d",
+			        (long long) pplan, slot);
 		pplans[slot].pplan = 0;
 		pplans[slot].next = ctx->head_free_pplan_slot;
 		ctx->head_free_pplan_slot = slot;
@@ -342,10 +342,10 @@ plcMessage *handle_sql_message(plcMsgSQL *msg, plcContext *ctx, plcProcInfo *pin
 				SPI_freetuptable(SPI_tuptable);
 				break;
 			case SQL_TYPE_PREPARE:
-				plc_plan = PLy_malloc(sizeof(plcPlan));
+				plc_plan = palloc(sizeof(plcPlan));
 
 				if (msg->nargs > 0) {
-					plc_plan->argOids = PLy_malloc(msg->nargs * sizeof(Oid));
+					plc_plan->argOids = palloc(msg->nargs * sizeof(Oid));
 					argTypes = palloc(msg->nargs * sizeof(plcDatatype));
 				} else {
 					plc_plan->argOids = NULL;

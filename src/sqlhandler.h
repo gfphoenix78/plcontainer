@@ -19,6 +19,6 @@ typedef struct plcPlan {
 	int nargs;
 } plcPlan;
 
-plcMessage *handle_sql_message(plcMsgSQL *msg, plcConn *conn, plcProcInfo *pinfo);
+plcMessage *handle_sql_message(plcMsgSQL *msg, plcContext *ctx, plcProcInfo *pinfo);
 
 #endif /* PLC_SQLHANDLER_H */
