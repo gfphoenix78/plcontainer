@@ -264,15 +264,13 @@ static plcProcResult *plcontainer_get_result(FunctionCallInfo fcinfo,
 		req = plcontainer_generate_call_request(fcinfo, proc);
 		runtime_id = parse_container_meta(req->proc.src);
 		
-		ctx = get_container_conn(runtime_id);
+		ctx = get_container_context(runtime_id);
 		conn = (plcConn *)ctx;
 		pfree(runtime_id);
 
 		if (conn == NUL) {
 			plc_elog(ERROR, "Could not create or connect to container.");
 		}
-		
-
 		res = plcontainer_channel_send(conn, (plcMessage *) req);
 #ifndef PLC_PG				
 		SIMPLE_FAULT_INJECTOR("plcontainer_after_send_request");

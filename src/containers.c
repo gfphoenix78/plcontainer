@@ -57,7 +57,7 @@ static void insert_container_slot(char *runtime_id, plcContext *ctx, int slot)
 	containers[slot].ctx = ctx;
 }
 
-plcContext *get_container_conn(const char *runtime_id)
+plcContext *get_container_context(const char *runtime_id)
 {
 	int i;
 	plcContext *newCtx = NULL;
