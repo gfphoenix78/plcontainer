@@ -12,6 +12,7 @@
 
 #include "common/messages/messages.h"
 #include "message_fns.h"
+#include "executor/spi.h"
 
 typedef struct plcPlan {
 	Oid *argOids;

@@ -23,6 +23,7 @@
 
 #include "comm_utils.h"
 #include "comm_connectivity.h"
+#include "../sqlhandler.h"
 #ifndef PLC_CLIENT
   #include "miscadmin.h"
 #endif
