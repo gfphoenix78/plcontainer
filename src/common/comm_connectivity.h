@@ -45,7 +45,7 @@ typedef struct plcConn {
 typedef struct plcContext
 {
 	plcConn conn;
-	char *uds_fn; /* File for unix domain socket connection only. */
+	char *service_address; /* File for unix domain socket connection only. */
 	// int container_slot;
 	int head_free_pplan_slot;  /* free list of spi pplan slot */
 	struct pplan_slots pplans[MAX_PPLAN]; /* for spi plannning */

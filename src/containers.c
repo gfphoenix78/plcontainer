@@ -45,73 +45,44 @@ typedef struct {
 } container_t;
 
 #define MAX_CONTAINER_NUMBER 10
-#define CLEANUP_SLEEP_SEC 3
-#define CLEANUP_CONTAINER_CONNECT_RETRY_TIMES 60
 
-static volatile int containers_init = 0;
-static volatile container_t* volatile containers;
-
-static void init_containers();
+static volatile container_t containers[MAX_CONTAINER_NUMBER];
+static int container_size = 0;
 
 static int check_runtime_id(const char *id);
-
-static int find_container_slot() {
-	int i;
-
-	for (i = 0; i < MAX_CONTAINER_NUMBER; i++) {
-		if (containers[i].runtimeid == NULL) {
-			return i;
-		}
-	}
-	// Fatal would cause the session to be closed
-	plc_elog(FATAL, "Single session cannot handle more than %d open containers simultaneously", MAX_CONTAINER_NUMBER);
-
-}
 
 static void insert_container_slot(char *runtime_id, plcContext *ctx, int slot)
 {
 	containers[slot].runtimeid = plc_top_strdup(runtime_id);
-	containers[slot].conn = ctx;
-}
-
-static void init_containers()
-{
-	containers = (container_t *) PLy_malloc(MAX_CONTAINER_NUMBER * sizeof(container_t));
-	memset((void *)containers, 0, MAX_CONTAINER_NUMBER * sizeof(container_t));
-	containers_init = 1;
+	containers[slot].ctx = ctx;
 }
 
 plcContext *get_container_conn(const char *runtime_id)
 {
 	int i;
-	plcContext newCtx = NULL;
-
-	if (containers_init == 0)
-		init_containers();
+	plcContext *newCtx = NULL;
 
 #ifndef PLC_PG
 	SIMPLE_FAULT_INJECTOR("plcontainer_before_container_connected");
 #endif
-	for (i = 0; i < MAX_CONTAINER_NUMBER; i++)
-	{
-		if (containers[i].runtimeid != NULL &&
-		    strcmp(containers[i].runtimeid, runtime_id) == 0)
-		{
+	for (i = 0; i < container_size; i++)
+		if (strcmp(containers[i].runtimeid, runtime_id) == 0)
 			return containers[i].ctx;
-		}
-	}
 
-	/* No connection available, find a free slot for new connection */
-	i = find_container_slot();
+	i = container_size+1;
+	/* No connection available */
+	if (i >= MAX_CONTAINER_NUMBER)
+		plc_elog(ERROR, "too many plcontainer runtime in a session");
 
 	/* Container Context could not be NULL, otherwise an elog(ERROR) will be thrown out */
 	newCtx = get_new_container_ctx(runtime_id);
 
 	insert_container_ctx(runtime_id, newCtx, i);
-
+	container_size++;
 	return newCtx;
 }
-
+// return a plcContext that connected to the server
+// TODO: complete impl
 static plcContext *get_new_container_ctx(const char *runtime_id)
 {
 	plcContext *ctx = NULL;
@@ -121,14 +92,14 @@ static plcContext *get_new_container_ctx(const char *runtime_id)
 	ctx = (plcContext*) palloc0(sizeof(plcContext));
 	plcContextInit(ctx);
 
-	res = get_new_container_from_coordinator(runtime_id, conn);
+	res = get_new_container_from_coordinator(runtime_id, ctx);
 
 	if (res != 0){
 		/* TODO: Using errors instead of elog */
 		elog(ERROR, "Cannot find an available container");
 	}
 
-	res = init_container_connection(conn);
+	res = init_container_connection(ctx);
 
 	if (res != 0)
 	{
@@ -137,7 +108,7 @@ static plcContext *get_new_container_ctx(const char *runtime_id)
 		elog(ERROR, "Cannot connect to container server");
 	}
 
-	return conn;
+	return ctx;
 }
 
 /* TODO: using emun to instead of int? */
@@ -159,12 +130,15 @@ static int get_new_container_from_coordinator(const char *runtime_id, plcContext
 	return ret;
 }
 
-static int init_container_connection(plcConn conn)
+// This function is called by plcontainer only.
+// when socket fd of plcConn is ready, make a shakehand to the server
+// returns 0 if successfully, otherwise -1 if failed.
+static int init_container_connection(plcContext *ctx)
 {
 	plcMsgPing *mping = NULL;
+	plcConn *conn = (plcConn *)ctx;
 	unsigned int sleepus = 25000;
 	unsigned int sleepms = 0;
-
 
 	mping = (plcMsgPing*) palloc(sizeof(plcMsgPing));
 	mping->msgtype = MT_PING;
@@ -228,29 +202,28 @@ static char *get_coordinator_address(void) {
 	return NULL;
 }
 
-void delete_containers() {
+void reset_containers() {
 	int i;
 
-	if (containers_init != 0) {
-		for (i = 0; i < MAX_CONTAINER_NUMBER; i++) {
-			if (containers[i].runtimeid != NULL) {
-				/*
-				 * Disconnect at first so that container has chance to exit gracefully.
-				 * When running code coverage for client code, client needs to
-				 * have chance to flush the gcda files thus direct kill-9 is not
-				 * proper.
-				 */
-				plcContext *ctx = containers[i].ctx;
-				char *runtimeid = containers[i].runtimeid;
-				containers[i].runtimeid = NULL;
-				containers[i].conn	= NULL;
-				if (ctx)
-					plcFreeContext(ctx);
-				pfree(runtimeid);
-			}
+	for (i = 0; i < container_size; i++) {
+		if (containers[i].runtimeid != NULL) {
+			/*
+				* Disconnect at first so that container has chance to exit gracefully.
+				* When running code coverage for client code, client needs to
+				* have chance to flush the gcda files thus direct kill-9 is not
+				* proper.
+				*/
+			plcContext *ctx = containers[i].ctx;
+			char *runtimeid = containers[i].runtimeid;
+			containers[i].runtimeid = NULL;
+			containers[i].ctx = NULL;
+			if (ctx)
+				plcFreeContext(ctx);
+			pfree(runtimeid);
 		}
 	}
-	containers_init = 0;
+	containers_size = 0;
+	memset(containers, 0, sizeof(containers));
 }
 
 char *parse_container_meta(const char *source) {

@@ -128,7 +128,7 @@ int sanity_check_client(void);
 /* pfree & pstrdup are already defined by postgres */
 void *top_palloc(size_t bytes);
 
-char *plc_top_strdup(char *str);
+char *plc_top_strdup(const char *str);
 
 #endif /* PLC_CLIENT */
 

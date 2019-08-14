@@ -25,6 +25,6 @@ plcConn *get_container_conn(const char *id);
 plcConn *start_backend(runtimeConfEntry *conf);
 
 /* Function deletes all the containers */
-void delete_containers(void);
+void reset_containers(void);
 
 #endif /* PLC_CONTAINERS_H */

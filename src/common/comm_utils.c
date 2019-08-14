@@ -19,7 +19,7 @@ void *top_palloc(size_t bytes) {
 	return MemoryContextAlloc(TopMemoryContext, bytes);
 }
 
-char *plc_top_strdup(char *str) {
+char *plc_top_strdup(const char *str) {
 	int len = strlen(str);
 	char *out = PLy_malloc(len + 1);
 	memcpy(out, str, len);
