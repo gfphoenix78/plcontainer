@@ -332,7 +332,7 @@ static void parse_runtime_configuration(xmlNode *node) {
 			int j = 0;
 
 			/* Allocate in top context as it should live between function calls */
-			conf_entry->sharedDirs = PLy_malloc(num_shared_dirs * sizeof(plcSharedDir));
+			conf_entry->sharedDirs = palloc(num_shared_dirs * sizeof(plcSharedDir));
 			for (cur_node = node->children; cur_node; cur_node = cur_node->next) {
 				if (cur_node->type == XML_ELEMENT_NODE &&
 					xmlStrcmp(cur_node->name, (const xmlChar *) "shared_directory") == 0) {

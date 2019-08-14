@@ -21,7 +21,7 @@ void *top_palloc(size_t bytes) {
 
 char *plc_top_strdup(const char *str) {
 	int len = strlen(str);
-	char *out = PLy_malloc(len + 1);
+	char *out = top_palloc(len + 1);
 	memcpy(out, str, len);
 	out[len] = '\0';
 	return out;

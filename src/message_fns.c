@@ -115,7 +115,7 @@ plcProcInfo *plcontainer_procedure_get(FunctionCallInfo fcinfo) {
 		 *
 		 * Note: we free the procedure from within function_put_cache below
 		 */
-		proc = PLy_malloc(sizeof(plcProcInfo));
+		proc = top_palloc(sizeof(plcProcInfo));
 		if (proc == NULL) {
 			plc_elog(FATAL, "Cannot allocate memory for plcProcInfo structure");
 		}
@@ -165,7 +165,7 @@ plcProcInfo *plcontainer_procedure_get(FunctionCallInfo fcinfo) {
 			// This is required to avoid the cycle from being removed by optimizer
 			int volatile j;
 
-			proc->args = PLy_malloc(proc->nargs * sizeof(plcTypeInfo));
+			proc->args = top_palloc(proc->nargs * sizeof(plcTypeInfo));
 			for (j = 0; j < proc->nargs; j++) {
 				fill_type_info(fcinfo, procStruct->proargtypes.values[j], &proc->args[j]);
 			}
@@ -192,7 +192,7 @@ plcProcInfo *plcontainer_procedure_get(FunctionCallInfo fcinfo) {
 				}
 			}
 
-			proc->argnames = PLy_malloc(proc->nargs * sizeof(char *));
+			proc->argnames = top_palloc(proc->nargs * sizeof(char *));
 			for (j = 0; j < proc->nargs; j++) {
 				if (!isnull && !argnulls[j]) {
 					proc->argnames[j] =

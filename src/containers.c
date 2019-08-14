@@ -54,9 +54,9 @@ static char *get_coordinator_address(void);
 static int get_new_container_from_coordinator(const char *runtime_id, plcContext *ctx);
 static plcContext *get_new_container_ctx(const char *runtime_id);
 static int init_container_connection(plcContext *ctx);
-static void insert_container_slot(char *runtime_id, plcContext *ctx, int slot);
+static void insert_container_ctx(char *runtime_id, plcContext *ctx, int slot);
 
-static void insert_container_slot(char *runtime_id, plcContext *ctx, int slot)
+static void insert_container_ctx(char *runtime_id, plcContext *ctx, int slot)
 {
 	containers[slot].runtimeid = plc_top_strdup(runtime_id);
 	containers[slot].ctx = ctx;
