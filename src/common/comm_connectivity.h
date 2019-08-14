@@ -77,7 +77,7 @@ void plcContextInit(plcContext *ctx);
 void plcConnInit(plcConn *conn);
 void plcDisconnect(plcConn *conn);
 void plcFreeContext(plcContext *ctx);
-
+void plcReleaseContext(plcContext *ctx);
 
 // plcConn *plcConnInit(int sock);
 
@@ -100,5 +100,8 @@ static inline int plcBufferAvailableSize(const plcBuffer *buffer)
 {
 	return buffer->pEnd - buffer->pStart;
 }
+
+int ListenUnix(const char *network, const char *address);
+int ListenTCP(const char *network, const char *address);
 
 #endif /* PLC_COMM_CONNECTIVITY_H */

@@ -37,6 +37,8 @@ static void plcBufferMaybeReset(plcConn *conn, int bufType);
 
 static int plcBufferMaybeResize(plcConn *conn, int bufType, size_t bufAppend);
 
+static char *split_address(const char *address, char *node_service);
+
 static void
 plc_gettimeofday(struct timeval *tv)
 {
@@ -385,7 +387,23 @@ void plcContextInit(plcContext *ctx)
 	ctx->service_address = NULL;
 }
 
-static int ListenTCP(const char *network, const char *address)
+static char *split_address(const char *address, char *node_service)
+{
+    char *p;
+    int n = strlen(address);
+    if (n>=600 || n<5)
+        return NULL;
+    strcpy(node_service, address);
+    p = node_service + n-1;
+    while (*p != ':' && p>node_service)
+        --p;
+    if (*p != ':')
+        return NULL;
+    *p = '\0';
+    return p+1;
+}
+
+int ListenTCP(const char *network, const char *address)
 {
     if (!network || !address) {
         plc_elog(ERROR, "invalid parameters: network(%s), address(%s)",
@@ -458,7 +476,7 @@ int ListenUnix(const char *network, const char *address)
         return -1;
     }
     if (strlen(address) >= sizeof(sockaddr.sun_path)) {
-        plc_elog(ERROR, "address is too long(%d)", strlen(address));
+        plc_elog(ERROR, "address is too long(%d)", (int)strlen(address));
         return -1;
     }
     fd = socket(AF_UNIX, sotype, 0);
@@ -572,7 +590,7 @@ static int DialUnix(const char *network, const char *address)
         return -1;
     }
     if (strlen(address) >= sizeof(sockaddr.sun_path)) {
-        plc_elog(ERROR, "address(%s) is too long(%d)", address, strlen(address));
+        plc_elog(ERROR, "address(%s) is too long(%d)", address, (int)strlen(address));
         return -1;
     }
     fd = socket(AF_UNIX, sotype, 0);
@@ -643,7 +661,7 @@ void plcReleaseContext(plcContext *ctx)
 void plcFreeContext(plcContext *ctx)
 {
 	char *service_address;
-	close(ctx->sock);
+	close(ctx->conn.sock);
 	plcReleaseContext(ctx);
 	service_address = ctx->service_address;
 	if (service_address != NULL) {

@@ -34,7 +34,6 @@ interpreted as representing official policies, either expressed or implied, of t
 #include "comm_utils.h"
 #include "comm_connectivity.h"
 #include "config.h"
-#include "server/server.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -157,7 +156,7 @@ int plcontainer_channel_receive(plcConn *conn, plcMessage **msg, int64 mask) {
 
 	conn->rx_timeout_sec = 0x7fffFFFF; /* Wait for ever at this moment */
 	res = receive_message_type(conn, &cType);
-	conn->rx_timeout_sec = TIMEOUT_SEC;
+	conn->rx_timeout_sec = 10;
 	plc_elog(DEBUG1, "start to receive data, type is %c", cType);
 	if (res >= 0) {
 		switch (cType) {

@@ -21,7 +21,7 @@
 #include "comm_connectivity.h"
 #include "comm_log.h"
 #include "messages/messages.h"
-#include "server/server.h"
+#include "server.h"
 
 /*
  * Function binds the socket and starts listening on it: tcp

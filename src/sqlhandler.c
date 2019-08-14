@@ -34,9 +34,6 @@ static plcMsgResult *create_sql_result(bool isSelect);
 
 static plcMsgRaw *create_prepare_result(int64 pplan, plcDatatype *type, int nargs);
 
-void deinit_pplan_slots(plcContext *ctx);
-
-void init_pplan_slots(plcContext *ctx);
 
 static plcMsgResult *create_sql_result(bool isSelect) {
 	plcMsgResult *result;
