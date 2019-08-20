@@ -40,6 +40,8 @@ extern void plc_coordinator_main(Datum datum);
 
 // END OF PROTOTYPES.
 
+static volatile sig_atomic_t got_sigterm = false;
+static volatile sig_atomic_t got_sighup = false;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static void
 plc_coordinator_shmem_startup(void)
@@ -64,11 +66,29 @@ init_shmem_(void)
     prev_shmem_startup_hook = shmem_startup_hook;
     shmem_startup_hook = plc_coordinator_shmem_startup;
 }
+static void
+plc_coordinator_sigterm(SIGNAL_ARGS)
+{
+    got_sigterm = true;
+}
+
+static void
+plc_coordinator_sighup(SIGNAL_ARGS)
+{
+    got_sighup = true;
+}
 
 void
 plc_coordinator_main(Datum datum)
 {
+    pqsignal(SIGTERM, plc_coordinator_sigterm);
+    pqsignal(SIGHUP, plc_coordinator_sighup);
+    BackgroundWorkerUnblockSignals();
     // TODO: impl coordinator logic here
+    while(!got_sigterm) {
+        CHECK_FOR_INTERRUPTS();
+        sleep(2);
+    }
 }
 // UNIX DOMAIN SOCKET
 /**
@@ -125,16 +145,17 @@ _PG_init(void)
 
     /* coordinator.so must be in shared_preload_libraries to init SHM. */
     if (!process_shared_preload_libraries_in_progress)
-        ereport(ERROR, (errmsg("coordinator.so not in shared_preload_libraries.")));
+        ereport(ERROR, (errmsg("plc_coordinator.so not in shared_preload_libraries.")));
 
     worker.bgw_flags = BGWORKER_SHMEM_ACCESS;
     worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
     worker.bgw_restart_time = BGW_DEFAULT_RESTART_INTERVAL;
-    snprintf(worker.bgw_library_name, BGW_MAXLEN, "coordinator");
-    snprintf(worker.bgw_function_name, BGW_MAXLEN, "plc_coordinator_main");
+    worker.bgw_main = plc_coordinator_main;
+
     worker.bgw_notify_pid = 0;
 
     snprintf(worker.bgw_name, BGW_MAXLEN, "[plcontainer] - coordinator");
 
     RegisterBackgroundWorker(&worker);
+    elog(NOTICE, "init plc_coordinator %d done", (int)getpid());
 }
