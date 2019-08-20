@@ -2,7 +2,7 @@
 
 MODULE_big = plc_coordinator
 
-EXTENSION = plcontainer
+EXTENSION = plc_coordinator
 SRCDIR = ./
 FILES = co_coordinator.c
 OBJS = co_coordinator.o
