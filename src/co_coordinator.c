@@ -39,6 +39,7 @@ PG_MODULE_MAGIC;
 // PROTOTYPE:
 extern void _PG_init(void);
 extern void plc_coordinator_main(Datum datum);
+extern void plc_coordinator_aux_main(Datum datum);
 extern int plcListenServer(const char *network, const char *address);
 
 // END OF PROTOTYPES.
