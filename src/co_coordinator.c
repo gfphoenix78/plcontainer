@@ -33,36 +33,37 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+#include "co_coordinator.h"
+
 PG_MODULE_MAGIC;
 // PROTOTYPE:
 extern void _PG_init(void);
 extern void plc_coordinator_main(Datum datum);
+extern int plcListenServer(const char *network, const char *address);
 
 // END OF PROTOTYPES.
 
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_sighup = false;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+coordinator_struct *coordinator_shm;
 static void
 plc_coordinator_shmem_startup(void)
 {
+    bool found;
     if (prev_shmem_startup_hook)
         prev_shmem_startup_hook();
     // TODO: do shared memory initialization
+    coordinator_shm = ShmemInitStruct(CO_SHM_KEY, MAXALIGN(sizeof(coordinator_struct)), &found);
+    Assert(!found);
+    coordinator_shm->state = CO_STATE_UNINITIALIZED;
+}
 
-}
-static int
-calc_shmem_size(void)
-{
-    // TODO: to calculate real shmem size
-    return 16;
-}
 static void
-init_shmem_(void)
+request_shmem_(void)
 {
-    RequestAddinShmemSpace(calc_shmem_size());
-    // TODO: figure out the number of locks
-    RequestAddinLWLocks(4);
+    RequestAddinShmemSpace(MAXALIGN(sizeof(coordinator_struct)));
+
     prev_shmem_startup_hook = shmem_startup_hook;
     shmem_startup_hook = plc_coordinator_shmem_startup;
 }
@@ -78,8 +79,74 @@ plc_coordinator_sighup(SIGNAL_ARGS)
     got_sighup = true;
 }
 
+static int
+plc_listen_socket()
+{
+    char address[500];
+    int sock;
+    snprintf(address, sizeof(address), "/tmp/plcoordinator_%d_unix.sock", (int)getpid());
+    sock = plcListenServer("unix", address);
+    if (sock < 0) {
+        elog(ERROR, "initialize socket failed");
+    }
+    coordinator_shm->protocol = CO_PROTO_UNIX;
+    strcpy(coordinator_shm->address, address);
+    return sock;
+}
+
+/**
+ * Initialize coordinator:
+ * 1. Create socket to listen request from QE
+ * 2. Create coordinator aux process to do some hard work,
+ *     like inspect docker
+ */
+static int
+plc_initialize_coordinator()
+{
+    BackgroundWorker auxWorker;
+    int sock;
+
+    sock = plc_listen_socket();
+
+    memset(&auxWorker, 0, sizeof(auxWorker));
+    auxWorker.bgw_flags = BGWORKER_SHMEM_ACCESS;
+    auxWorker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    auxWorker.bgw_restart_time = BGW_DEFAULT_RESTART_INTERVAL;
+    auxWorker.bgw_main = plc_coordinator_aux_main;
+
+    auxWorker.bgw_notify_pid = 0;
+    snprintf(auxWorker.bgw_name, sizeof(auxWorker.bgw_name), "plcoordinator_aux");
+    RegisterBackgroundWorker(&auxWorker);
+
+    return sock;
+}
 void
 plc_coordinator_main(Datum datum)
+{
+    int sock, rc;
+    pqsignal(SIGTERM, plc_coordinator_sigterm);
+    pqsignal(SIGHUP, plc_coordinator_sighup);
+    sock = plc_initialize_coordinator();
+    BackgroundWorkerUnblockSignals();
+
+    coordinator_shm->state = CO_STATE_READY;
+    elog(INFO, "plcoordinator is going to enter main loop, sock=%d", sock);
+    while(!got_sigterm) {
+        CHECK_FOR_INTERRUPTS();
+        rc = WaitLatch(&MyProc->procLatch, WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH, 0);
+        if (rc & WL_POSTMASTER_DEATH)
+            break;
+        ResetLatch(&MyProc->procLatch);
+        sleep(2);
+    }
+
+    if (coordinator_shm->protocol != CO_PROTO_TCP)
+        unlink(coordinator_shm->address);
+    proc_exit(0);
+}
+
+void
+plc_coordinator_aux_main(Datum datum)
 {
     pqsignal(SIGTERM, plc_coordinator_sigterm);
     pqsignal(SIGHUP, plc_coordinator_sighup);
@@ -89,47 +156,10 @@ plc_coordinator_main(Datum datum)
         CHECK_FOR_INTERRUPTS();
         sleep(2);
     }
+
+    proc_exit(0);
 }
-// UNIX DOMAIN SOCKET
-/**
- * return a socket fd, ready to receive connection
- * return -1 if failed
- * socket_address should be enough large to store a complete socket address if success
- */
-static int
-unix_listen(char *socket_address)
-{
-    int server_sock, rc, len;
-    struct sockaddr_un server_sockaddr;
 
-	// TODO: socktype, is SOCK_SEQPACKET ok?
-    server_sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-    if (server_sock == -1) {
-        return -1;
-    }
-
-    memset(&server_sockaddr, 0, sizeof(struct sockaddr_un));
-    server_sockaddr.sun_family = AF_UNIX;
-    snprintf(server_sockaddr.sun_path, sizeof(server_sockaddr.sun_path), "/tmp/plcoordinator.%d.sock", (int)getpid());
-    unlink(server_sockaddr.sun_path);
-    len = sizeof(server_sockaddr);
-
-    rc = bind(server_sock, (struct sockaddr *) &server_sockaddr, len);
-    if (rc == -1) {
-        goto err_out;
-    }
-	rc = listen(server_sock, 64);
-	if (rc == -1) {
-		goto err_out;
-	}
-
-    strcpy(socket_address, server_sockaddr.sun_path);
-    return server_sock;
-
-err_out:
-    close(server_sock);
-    return -1;
-}
 static void
 handle_read()
 {
@@ -140,7 +170,7 @@ _PG_init(void)
 {
     BackgroundWorker worker;
 
-    init_shmem_();
+    request_shmem_();
     memset(&worker, 0, sizeof(BackgroundWorker));
 
     /* coordinator.so must be in shared_preload_libraries to init SHM. */
