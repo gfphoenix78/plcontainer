@@ -10,7 +10,7 @@
 #define PLC_CONFIGURATION_H
 
 #include "fmgr.h"
-#include "hsearch.h"
+#include "utils/hsearch.h"
 #include <json-c/json.h>
 #include "plcontainer.h"
 
