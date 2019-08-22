@@ -34,6 +34,7 @@
 #include "utils/syscache.h"
 
 #include "co_coordinator.h"
+#include "plc_configuration.h"
 
 PG_MODULE_MAGIC;
 // PROTOTYPE:
@@ -47,6 +48,7 @@ extern int plcListenServer(const char *network, const char *address);
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_sighup = false;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+static MemoryContext *mCtx = NULL;
 coordinator_struct *coordinator_shm;
 static void
 plc_coordinator_shmem_startup(void)
@@ -109,6 +111,15 @@ plc_initialize_coordinator()
 
     sock = plc_listen_socket();
 
+    if (plc_refresh_container_config(false) != 0) {
+        if (runtime_conf_table == NULL) {
+            /* can't load runtime configuration */
+            plc_elog(ERROR, "PL/container: can't load runtime configuration");
+        } else {
+            plc_elog(WARNING, "PL/container: there is no runtime configuration");
+        }
+    }
+
     memset(&auxWorker, 0, sizeof(auxWorker));
     auxWorker.bgw_flags = BGWORKER_SHMEM_ACCESS;
     auxWorker.bgw_start_time = BgWorkerStart_RecoveryFinished;
@@ -134,6 +145,8 @@ plc_coordinator_main(Datum datum)
     elog(INFO, "plcoordinator is going to enter main loop, sock=%d", sock);
     while(!got_sigterm) {
         CHECK_FOR_INTERRUPTS();
+        /* TODO: add network code */
+
         rc = WaitLatch(&MyProc->procLatch, WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH, 0);
         if (rc & WL_POSTMASTER_DEATH)
             break;
