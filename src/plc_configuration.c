@@ -38,8 +38,6 @@
 #include "common/comm_utils.h"
 #include "common/comm_connectivity.h"
 #include "plcontainer.h"
-#include "plc_backend_api.h"
-#include "plc_docker_api.h"
 #include "plc_configuration.h"
 
 // we just want to avoid cleanup process to remove previous domain
@@ -48,11 +46,17 @@ static int domain_socket_no = 0;
 
 static void init_runtime_configurations();
 
-static void parse_runtime_configuration(xmlNode *node);
+static runtimeConfEntry *parse_runtime_configuration(HTAB *table, xmlNode *node);
 
-static void get_runtime_configurations(xmlNode *node);
+static void parse_root_runtime_configurations(HTAB *table, xmlNode *node);
+
+static int validate_runtime_entry(const runtimeConfEntry *conf);
 
 static void free_runtime_conf_entry(runtimeConfEntry *conf);
+
+static HTAB *new_runtime_configuration_table();
+
+static void release_runtime_configuration_table(HTAB *table);
 
 static void print_runtime_configurations();
 
@@ -60,55 +64,25 @@ PG_FUNCTION_INFO_V1(refresh_plcontainer_config);
 
 PG_FUNCTION_INFO_V1(show_plcontainer_config);
 
-static HTAB *rumtime_conf_table;
+HTAB *runtime_conf_table = NULL;
 
-/*
- * init runtime conf hash table.
- */
-static void init_runtime_configurations() {
-    /* create the runtime conf hash table*/
-	HASHCTL		hash_ctl;
+/* TODO: REMOVE ME */
+void *top_palloc(size_t bytes) {
+	/* We need our allocations to be long-lived, so use TopMemoryContext */
+	return MemoryContextAlloc(TopMemoryContext, bytes);
+}
 
-	/* destroy hash table first if exists*/
-	if (rumtime_conf_table != NULL) {
-		HASH_SEQ_STATUS hash_status;
-		runtimeConfEntry *entry;
-
-		hash_seq_init(&hash_status, rumtime_conf_table);
-
-		while ((entry = (runtimeConfEntry *) hash_seq_search(&hash_status)) != NULL)
-		{
-			free_runtime_conf_entry(entry);
-		}
-		hash_destroy(rumtime_conf_table);
-	}
-	
-	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
-	hash_ctl.keysize = RUNTIME_ID_MAX_LENGTH;
-	hash_ctl.entrysize = sizeof(runtimeConfEntry);
-	hash_ctl.hash = string_hash;
-	/*
-	 * Key and value of hash table share the same storage of entry.
-	 * the first keysize bytes of the entry is the hash key, and the
-	 * value if the entry itself.
-	 * For string key, we use string_hash to caculate hash key and
-	 * use strlcpy to copy key(when string_hash is set as hash function).
-	 */
-	rumtime_conf_table = hash_create("runtime configuration hash",
-								MAX_EXPECTED_RUNTIME_NUM,
-								&hash_ctl,
-								HASH_ELEM | HASH_FUNCTION);
-
-	if (rumtime_conf_table == NULL) {
-		plc_elog(ERROR, "Error: could not create runtime conf hash table. Check your memory usage.");
-	}
-
-	return ;
+char *plc_top_strdup(const char *str) {
+	int len = strlen(str);
+	char *out = top_palloc(len + 1);
+	memcpy(out, str, len);
+	out[len] = '\0';
+	return out;
 }
 
 /* Function parses the container XML definition and fills the passed
  * plcContainerConf structure that should be already allocated */
-static void parse_runtime_configuration(xmlNode *node) {
+static runtimeConfEntry *parse_runtime_configuration(HTAB *table, xmlNode *node) {
 	xmlNode *cur_node = NULL;
 	/* we add some cleanups after longjmp. longjmp may clobber the registers, 
 	 * so we need to add volatile qualifier to pointer. If the pointee is read
@@ -124,10 +98,6 @@ static void parse_runtime_configuration(xmlNode *node) {
 
 	runtimeConfEntry *conf_entry = NULL;
 	bool		foundPtr;
-
-	if (rumtime_conf_table == NULL) {
-		plc_elog(ERROR, "Runtime configuration table is not initialized.");
-	}
 
 	PG_TRY();
 	{
@@ -159,7 +129,7 @@ static void parse_runtime_configuration(xmlNode *node) {
 			plc_elog(ERROR, "runtime id should not be longer than 63 bytes.");
 		}
 		/* find the corresponding runtime config*/
-		conf_entry = (runtimeConfEntry *) hash_search(rumtime_conf_table,  (const void *) runtime_id, HASH_ENTER, &foundPtr);
+		conf_entry = (runtimeConfEntry *) hash_search(table,  (const void *) runtime_id, HASH_ENTER, &foundPtr);
 
 		/*check if runtime id already exists in hash table.*/
 		if (foundPtr) {
@@ -385,23 +355,23 @@ static void parse_runtime_configuration(xmlNode *node) {
 			value = NULL;
 		}
 
-		if (rumtime_conf_table != NULL && runtime_id != NULL) {
+		if (runtime_id != NULL) {
 			/* remove the broken runtime config entry in hash table*/
-			hash_search(rumtime_conf_table,  (const void *) runtime_id, HASH_REMOVE, NULL);
-
+			hash_search(table,  (const void *) runtime_id, HASH_REMOVE, NULL);
 		}
 
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
 
-	return ;
+	return conf_entry;
 }
 
 /* Function returns an array of plcContainerConf structures based on the contents
  * of passed XML document tree. Returns NULL on failure */
-static void get_runtime_configurations(xmlNode *node) {
+static void parse_root_runtime_configurations(HTAB *table, xmlNode *node) {
 	xmlNode *cur_node = NULL;
+	runtimeConfEntry *conf;
 
 	/* Validation that the root node matches the expected specification */
 	if (xmlStrcmp(node->name, (const xmlChar *) "configuration") != 0) {
@@ -413,18 +383,34 @@ static void get_runtime_configurations(xmlNode *node) {
 	for (cur_node = node->children; cur_node; cur_node = cur_node->next) {
 		if (cur_node->type == XML_ELEMENT_NODE &&
 		    xmlStrcmp(cur_node->name, (const xmlChar *) "runtime") == 0) {
-			parse_runtime_configuration(cur_node);
+			conf = parse_runtime_configuration(table, cur_node);
+			if (validate_runtime_entry(conf) != 0) {
+				hash_search(table, conf->runtimeid, HASH_REMOVE, NULL);
+			}
 		}
-	}
-
-	/* If no container definitions found - error */
-	if (hash_get_num_entries(rumtime_conf_table) == 0) {
-		plc_elog(ERROR, "Did not find a single 'runtime' declaration in configuration");
 	}
 
 	return ;
 }
 
+/**
+ * 0 if successful
+ * -1 invalid runtimeConfEntry
+ */
+static int validate_runtime_entry(const runtimeConfEntry *conf) {
+	int i;
+	if (conf->nSharedDirs < 1)
+		return 0;
+
+	/* check access mode. Need more verification? */
+	for (i = 0; i < conf->nSharedDirs; i++) {
+		if (conf->sharedDirs[i].mode != PLC_ACCESS_READONLY && conf->sharedDirs[i].mode != PLC_ACCESS_READWRITE) {
+			elog(WARNING, "Cannot determine directory sharing mode: %d", conf->sharedDirs[i].mode);
+			return -1;
+		}
+	}
+	return 0;
+}
 /* Safe way to deallocate container configuration list structure */
 static void free_runtime_conf_entry(runtimeConfEntry *entry) {
 	int i;
@@ -446,11 +432,11 @@ static void free_runtime_conf_entry(runtimeConfEntry *entry) {
 
 static void print_runtime_configurations() {
 	int j = 0;
-	if (rumtime_conf_table != NULL) {
+	if (runtime_conf_table != NULL) {
 		HASH_SEQ_STATUS hash_status;
 		runtimeConfEntry *conf_entry;
 
-		hash_seq_init(&hash_status, rumtime_conf_table);
+		hash_seq_init(&hash_status, runtime_conf_table);
 
 		while ((conf_entry = (runtimeConfEntry *) hash_seq_search(&hash_status)) != NULL)
 		{
@@ -480,14 +466,54 @@ static void print_runtime_configurations() {
 	}
 }
 
-static int plc_refresh_container_config(bool verbose) {
+static HTAB *new_runtime_configuration_table() {
+	HASHCTL hash_ctl;
+	HTAB *tab;
+	memset(&hash_ctl, 0, sizeof(hash_ctl));
+	hash_ctl.keysize = RUNTIME_ID_MAX_LENGTH;
+	hash_ctl.entrysize = sizeof(runtimeConfEntry);
+	hash_ctl.hash = string_hash;
+	/*
+	 * Key and value of hash table share the same storage of entry.
+	 * the first keysize bytes of the entry is the hash key, and the
+	 * value if the entry itself.
+	 * For string key, we use string_hash to caculate hash key and
+	 * use strlcpy to copy key(when string_hash is set as hash function).
+	 */
+	tab = hash_create("runtime configuration hash",
+								MAX_EXPECTED_RUNTIME_NUM,
+								&hash_ctl,
+								HASH_ELEM | HASH_FUNCTION);
+
+	return tab;
+}
+
+static void release_runtime_configuration_table(HTAB *table) {
+	HASH_SEQ_STATUS hash_status;
+	runtimeConfEntry *entry;
+
+	hash_seq_init(&hash_status, table);
+
+	while ((entry = (runtimeConfEntry *) hash_seq_search(&hash_status)) != NULL)
+	{
+		free_runtime_conf_entry(entry);
+	}
+	hash_destroy(table);
+}
+
+HTAB *load_runtime_configuration() {
 	xmlDoc* volatile doc = NULL;
+	HTAB *table;
 	char filename[1024];
  #ifdef PLC_PG
     char data_directory[1024];
 	char *env_str;
  #endif  
-	init_runtime_configurations();
+	table = new_runtime_configuration_table();
+	if (!table) {
+		plc_elog(WARNING, "can't alloc HTAB for runtime_configuration");
+		return NULL;
+	}
 	/*
 	 * this initialize the library and check potential ABI mismatches
 	 * between the version it was compiled for and the actual shared
@@ -511,14 +537,14 @@ static int plc_refresh_container_config(bool verbose) {
 			return -1;
 		}
 
-		get_runtime_configurations(xmlDocGetRootElement(doc));
+		parse_root_runtime_configurations(table, xmlDocGetRootElement(doc));
 	}
 	PG_CATCH();
 	{
 		if (doc != NULL) {
 			xmlFreeDoc(doc);
 		}
-
+		hash_destroy(table);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -530,9 +556,24 @@ static int plc_refresh_container_config(bool verbose) {
 	/* Free the global variables that may have been allocated by the parser */
 	xmlCleanupParser();
 
-	if (hash_get_num_entries(rumtime_conf_table) == 0) {
+	return table;
+}
+
+int plc_refresh_container_config(bool verbose) {
+	HTAB *table = load_runtime_configuration();
+	HTAB *tmp;
+
+	if (!table)
 		return -1;
+	/* TODO: check to see if it needs a lock */
+	tmp = runtime_conf_table;
+	runtime_conf_table = table;
+	if (tmp) {
+		release_runtime_configuration_table(tmp);
 	}
+
+	if (hash_get_num_entries(runtime_conf_table) == 0)
+		return -1;
 
 	if (verbose) {
 		print_runtime_configurations();
@@ -544,13 +585,13 @@ static int plc_refresh_container_config(bool verbose) {
 static int plc_show_container_config() {
 	int res = 0;
 
-	if (rumtime_conf_table == NULL) {
+	if (runtime_conf_table == NULL) {
 		res = plc_refresh_container_config(false);
 		if (res != 0)
 			return -1;
 	}
 
-	if (rumtime_conf_table == NULL || hash_get_num_entries(rumtime_conf_table) == 0) {
+	if (runtime_conf_table == NULL || hash_get_num_entries(runtime_conf_table) == 0) {
 		return -1;
 	}
 
@@ -588,7 +629,7 @@ runtimeConfEntry *plc_get_runtime_configuration(char *runtime_id) {
 	int res = 0;
 	runtimeConfEntry *entry = NULL;
 
-	if (rumtime_conf_table == NULL || hash_get_num_entries(rumtime_conf_table) == 0) {
+	if (runtime_conf_table == NULL || hash_get_num_entries(runtime_conf_table) == 0) {
 		res = plc_refresh_container_config(0);
 		if (res < 0) {
 			return NULL;
@@ -596,7 +637,7 @@ runtimeConfEntry *plc_get_runtime_configuration(char *runtime_id) {
 	}
 
 	/* find the corresponding runtime config*/
-	entry = (runtimeConfEntry *) hash_search(rumtime_conf_table,  (const void *) runtime_id, HASH_FIND, NULL);
+	entry = (runtimeConfEntry *) hash_search(runtime_conf_table,  (const void *) runtime_id, HASH_FIND, NULL);
 
 	return entry;
 }
@@ -627,9 +668,7 @@ char *get_sharing_options(runtimeConfEntry *conf, int container_slot, bool *has_
 				sprintf(volumes[i], " %c\"%s:%s:rw\"", comma, conf->sharedDirs[i].host,
 				        conf->sharedDirs[i].container);
 			} else {
-				snprintf(backend_error_message, sizeof(backend_error_message),
-				         "Cannot determine directory sharing mode: %d",
-				         conf->sharedDirs[i].mode);
+				elog(WARNING, "PL/container: BUG, if runtimeConfEntry is verified, it can't be here");
 				*has_error = true;
 				for (j = 0; j <= i ;j++) {
 					pfree(volumes[i]);
@@ -656,9 +695,7 @@ char *get_sharing_options(runtimeConfEntry *conf, int container_slot, bool *has_
 
 			/* Create the directory. */
 			if (mkdir(*uds_dir, S_IRWXU) < 0 && errno != EEXIST) {
-				snprintf(backend_error_message, sizeof(backend_error_message),
-				         "Cannot create directory %s: %s",
-				         *uds_dir, strerror(errno));
+				elog(WARNING, "Cannot create directory %s", *uds_dir);
 				*has_error = true;
 				for (j = 0; j <= i ;j++) {
 					pfree(volumes[i]);
@@ -682,206 +719,6 @@ char *get_sharing_options(runtimeConfEntry *conf, int container_slot, bool *has_
 	}
 
 	return res;
-}
-
-PG_FUNCTION_INFO_V1(containers_summary);
-
-Datum
-containers_summary(pg_attribute_unused() PG_FUNCTION_ARGS) {
-
-	FuncCallContext *funcctx;
-	int call_cntr;
-	int max_calls;
-	int res;
-	TupleDesc tupdesc;
-	AttInMetadata *attinmeta;
-	struct json_object *container_list = NULL;
-	char *json_result;
-	bool isFirstCall = true;
-
-
-	/* Init the container list in the first call and get the results back */
-	if (SRF_IS_FIRSTCALL()) {
-		MemoryContext oldcontext;
-		int arraylen;
-
-		/* create a function context for cross-call persistence */
-		funcctx = SRF_FIRSTCALL_INIT();
-
-		/* switch to memory context appropriate for multiple function calls */
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		res = plc_docker_list_container(&json_result);
-		if (res < 0) {
-			plc_elog(ERROR, "Docker container list error: %s", backend_error_message);
-		}
-
-		/* no container running */
-		if (strcmp(json_result, "[]") == 0) {
-			funcctx->max_calls = 0;
-		}
-
-		container_list = json_tokener_parse(json_result);
-
-		if (container_list == NULL) {
-			plc_elog(ERROR, "Parse JSON object error, cannot get the containers summary");
-		}
-
-		arraylen = json_object_array_length(container_list);
-
-		/* total number of containers to be returned, each array contains one container */
-		funcctx->max_calls = (uint32) arraylen;
-
-		/*
-		 * prepare attribute metadata for next calls that generate the tuple
-		 */
-
-		tupdesc = CreateTemplateTupleDesc(5, false);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "SEGMENT_ID",
-		                   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "CONTAINER_ID",
-		                   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "UP_TIME",
-		                   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "OWNER",
-		                   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "MEMORY_USAGE(KB)",
-		                   TEXTOID, -1, 0);
-
-		attinmeta = TupleDescGetAttInMetadata(tupdesc);
-		funcctx->attinmeta = attinmeta;
-
-		MemoryContextSwitchTo(oldcontext);
-	} else {
-		isFirstCall = false;
-	}
-
-	funcctx = SRF_PERCALL_SETUP();
-
-	call_cntr = funcctx->call_cntr;
-	max_calls = funcctx->max_calls;
-	attinmeta = funcctx->attinmeta;
-
-	if (isFirstCall) {
-		funcctx->user_fctx = (void *) container_list;
-	} else {
-		container_list = (json_object *) funcctx->user_fctx;
-	}
-	/*if a record is not suitable, skip it and scan next record*/
-	while (1) {
-		/* send one tuple */
-		if (call_cntr < max_calls) {
-			char **values;
-			HeapTuple tuple;
-			Datum result;
-			int res;
-			char *containerState = NULL;
-			struct json_object *containerObj = NULL;
-			struct json_object *containerStateObj = NULL;
-			int64 containerMemoryUsage = 0;
-
-			struct json_object *statusObj = NULL;
-			const char *statusStr;
-            struct json_object *labelObj = NULL;
-			struct json_object *ownerObj = NULL;
-			const char *ownerStr;
-			const char *username;
-			struct json_object *dbidObj = NULL;
-			const char *dbidStr;
-			struct json_object *idObj = NULL;
-			const char *idStr;
-			struct json_object *memoryObj = NULL;
-			struct json_object *memoryUsageObj = NULL;
-			
-			/*
-			 * Process json object by its key, and then get value
-			 */
-
-			containerObj = json_object_array_get_idx(container_list, call_cntr);
-			if (containerObj == NULL) {
-				plc_elog(ERROR, "Not a valid container.");
-			}
-
-			if (!json_object_object_get_ex(containerObj, "Status", &statusObj)) {
-				plc_elog(ERROR, "failed to get json \"Status\" field.");
-			}
-			statusStr = json_object_get_string(statusObj);
-			if (!json_object_object_get_ex(containerObj, "Labels", &labelObj)) {
-				plc_elog(ERROR, "failed to get json \"Labels\" field.");
-			}
-			if (!json_object_object_get_ex(labelObj, "owner", &ownerObj)) {
-				funcctx->call_cntr++;
-				call_cntr++;
-				plc_elog(LOG, "failed to get json \"owner\" field. Maybe this container is not started by PL/Container");
-				continue;
-			}
-			ownerStr = json_object_get_string(ownerObj);
-			username = GetUserNameFromId(GetUserId());
-			if (strcmp(ownerStr, username) != 0 && superuser() == false) {
-				funcctx->call_cntr++;
-				call_cntr++;
-				plc_elog(DEBUG1, "Current username %s (not super user) is not match conatiner owner %s, skip",
-					 username, ownerStr);
-				continue;
-			}
-
-			
-			if (!json_object_object_get_ex(labelObj, "dbid", &dbidObj)) {
-				funcctx->call_cntr++;
-				call_cntr++;
-				plc_elog(LOG, "failed to get json \"dbid\" field. Maybe this container is not started by PL/Container");
-				continue;
-			}
-			dbidStr = json_object_get_string(dbidObj);
-			
-			if (!json_object_object_get_ex(containerObj, "Id", &idObj)) {
-				plc_elog(ERROR, "failed to get json \"Id\" field.");
-			}
-			idStr = json_object_get_string(idObj);
-
-			res = plc_docker_get_container_state(idStr, &containerState);
-			if (res < 0) {
-				plc_elog(ERROR, "Fail to get docker container state: %s", backend_error_message);
-			}
-
-			containerStateObj = json_tokener_parse(containerState);
-			if (!json_object_object_get_ex(containerStateObj, "memory_stats", &memoryObj)) {
-				plc_elog(ERROR, "failed to get json \"memory_stats\" field.");
-			}
-			if (!json_object_object_get_ex(memoryObj, "usage", &memoryUsageObj)) {
-				plc_elog(LOG, "failed to get json \"usage\" field.");
-			} else {
-				containerMemoryUsage = json_object_get_int64(memoryUsageObj) / 1024;
-			}
-
-			values = (char **) palloc(5 * sizeof(char *));
-			values[0] = (char *) palloc(8 * sizeof(char));
-			values[1] = (char *) palloc(80 * sizeof(char));
-			values[2] = (char *) palloc(64 * sizeof(char));
-			values[3] = (char *) palloc(64 * sizeof(char));
-			values[4] = (char *) palloc(32 * sizeof(char));
-
-			snprintf(values[0], 8, "%s", dbidStr);
-			snprintf(values[1], 80, "%s", idStr);
-			snprintf(values[2], 64, "%s", statusStr);
-			snprintf(values[3], 64, "%s", ownerStr);
-			snprintf(values[4], 32, "%ld", containerMemoryUsage);
-
-			/* build a tuple */
-			tuple = BuildTupleFromCStrings(attinmeta, values);
-
-			/* make the tuple into a datum */
-			result = HeapTupleGetDatum(tuple);
-
-			SRF_RETURN_NEXT(funcctx, result);
-		} else {
-			if (container_list != NULL) {
-				json_object_put(container_list);
-			}
-			SRF_RETURN_DONE(funcctx);
-		}
-	}
-
 }
 
 bool plc_check_user_privilege(char *roles){
