@@ -66,6 +66,20 @@ PG_FUNCTION_INFO_V1(show_plcontainer_config);
 
 HTAB *runtime_conf_table = NULL;
 
+/* TODO: REMOVE ME */
+void *top_palloc(size_t bytes) {
+	/* We need our allocations to be long-lived, so use TopMemoryContext */
+	return MemoryContextAlloc(TopMemoryContext, bytes);
+}
+
+char *plc_top_strdup(const char *str) {
+	int len = strlen(str);
+	char *out = top_palloc(len + 1);
+	memcpy(out, str, len);
+	out[len] = '\0';
+	return out;
+}
+
 /* Function parses the container XML definition and fills the passed
  * plcContainerConf structure that should be already allocated */
 static runtimeConfEntry *parse_runtime_configuration(HTAB *table, xmlNode *node) {
@@ -371,7 +385,7 @@ static void parse_root_runtime_configurations(HTAB *table, xmlNode *node) {
 		    xmlStrcmp(cur_node->name, (const xmlChar *) "runtime") == 0) {
 			conf = parse_runtime_configuration(table, cur_node);
 			if (validate_runtime_entry(conf) != 0) {
-				hash_search(table, conf->runtime_id, HASH_REMOVE, NULL);
+				hash_search(table, conf->runtimeid, HASH_REMOVE, NULL);
 			}
 		}
 	}
@@ -555,7 +569,7 @@ int plc_refresh_container_config(bool verbose) {
 	tmp = runtime_conf_table;
 	runtime_conf_table = table;
 	if (tmp) {
-		release_runtime_configuration_table
+		release_runtime_configuration_table(tmp);
 	}
 
 	if (hash_get_num_entries(runtime_conf_table) == 0)
