@@ -157,7 +157,7 @@ plc_coordinator_main(Datum datum)
         if (rc & WL_POSTMASTER_DEATH)
             break;
         ResetLatch(&MyProc->procLatch);
-        if (sighup) {
+        if (got_sighup) {
             plc_refresh_container_config(false);
         }
         sleep(2);
