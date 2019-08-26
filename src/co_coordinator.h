@@ -9,7 +9,7 @@ typedef enum {
     CO_STATE_UNINITIALIZED = 0x8745,
     CO_STATE_READY,
     CO_STATE_EXITING,
-} coordinator_state;
+} CoordinatorState;
 
 typedef enum {
     CO_PROTO_TCP,
@@ -19,10 +19,10 @@ typedef enum {
 
 typedef struct
 {
-    volatile coordinator_state state;
+    volatile CoordinatorState state;
     coordinator_protocol protocol;
     char address[504];
-} coordinator_struct;
+} CoordinatorStruct;
 #define CO_SHM_KEY  "plcoordinator_shm"
 
 typedef struct runtime_server_entry

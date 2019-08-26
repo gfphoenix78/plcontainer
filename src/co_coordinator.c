@@ -47,9 +47,10 @@ extern int plcListenServer(const char *network, const char *address);
 
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_sighup = false;
+static volatile sig_atomic_t got_sigint = false;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static MemoryContext *mCtx = NULL;
-coordinator_struct *coordinator_shm;
+CoordinatorStruct *coordinator_shm;
 static void
 plc_coordinator_shmem_startup(void)
 {
@@ -57,7 +58,7 @@ plc_coordinator_shmem_startup(void)
     if (prev_shmem_startup_hook)
         prev_shmem_startup_hook();
     // TODO: do shared memory initialization
-    coordinator_shm = ShmemInitStruct(CO_SHM_KEY, MAXALIGN(sizeof(coordinator_struct)), &found);
+    coordinator_shm = ShmemInitStruct(CO_SHM_KEY, MAXALIGN(sizeof(CoordinatorStruct)), &found);
     Assert(!found);
     coordinator_shm->state = CO_STATE_UNINITIALIZED;
 }
@@ -65,7 +66,7 @@ plc_coordinator_shmem_startup(void)
 static void
 request_shmem_(void)
 {
-    RequestAddinShmemSpace(MAXALIGN(sizeof(coordinator_struct)));
+    RequestAddinShmemSpace(MAXALIGN(sizeof(CoordinatorStruct)));
 
     prev_shmem_startup_hook = shmem_startup_hook;
     shmem_startup_hook = plc_coordinator_shmem_startup;
@@ -80,6 +81,12 @@ static void
 plc_coordinator_sighup(SIGNAL_ARGS)
 {
     got_sighup = true;
+}
+
+static void
+plc_coordinator_sigint(SIGNAL_ARGS)
+{
+    got_sigint = true;
 }
 
 static int
@@ -144,13 +151,15 @@ plc_coordinator_main(Datum datum)
     coordinator_shm->state = CO_STATE_READY;
     elog(INFO, "plcoordinator is going to enter main loop, sock=%d", sock);
     while(!got_sigterm) {
-        CHECK_FOR_INTERRUPTS();
         /* TODO: add network code */
 
         rc = WaitLatch(&MyProc->procLatch, WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH, 0);
         if (rc & WL_POSTMASTER_DEATH)
             break;
         ResetLatch(&MyProc->procLatch);
+        if (sighup) {
+            plc_refresh_container_config(false);
+        }
         sleep(2);
     }
 
@@ -167,16 +176,10 @@ plc_coordinator_aux_main(Datum datum)
     BackgroundWorkerUnblockSignals();
     // TODO: impl coordinator logic here
     while(!got_sigterm) {
-        CHECK_FOR_INTERRUPTS();
         sleep(2);
     }
 
     proc_exit(0);
-}
-
-static void
-handle_read()
-{
 }
 
 void
