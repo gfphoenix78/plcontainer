@@ -47,7 +47,6 @@ extern int plcListenServer(const char *network, const char *address);
 
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_sighup = false;
-static volatile sig_atomic_t got_sigint = false;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static MemoryContext *mCtx = NULL;
 CoordinatorStruct *coordinator_shm;
@@ -81,12 +80,6 @@ static void
 plc_coordinator_sighup(SIGNAL_ARGS)
 {
     got_sighup = true;
-}
-
-static void
-plc_coordinator_sigint(SIGNAL_ARGS)
-{
-    got_sigint = true;
 }
 
 static int
