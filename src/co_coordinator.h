@@ -25,4 +25,19 @@ typedef struct
 } coordinator_struct;
 #define CO_SHM_KEY  "plcoordinator_shm"
 
+typedef struct runtime_server_entry
+{
+    struct runtime_server_entry *next;
+    const char *runtime_id;
+    char *service_address;
+} runtime_server_entry;
+
+typedef struct
+{
+    int id; // pid of QE
+    int sock; // socket file descriptor between QE and coordinator
+    /* list of containers */
+    runtime_server_entry *server_list;
+} requester_info_entry;
+
 #endif /* _CO_COORDINATOR_H */
